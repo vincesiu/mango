@@ -1,5 +1,7 @@
 //extern crate termion;
 
+// todo: handle sigwinch https://crates.io/crates/signal-hook
+
 use std::convert::TryFrom;
 use std::io::{stdin, stdout, Stdout, Write};
 use termion::color;
@@ -7,23 +9,24 @@ use termion::event::Key;
 use termion::input::TermRead;
 use termion::raw::{IntoRawMode, RawTerminal};
 
+use std::fs::File;
+use std::io::prelude::*;
+
+struct TextRow {
+    contents: String,
+}
+
 struct ScreenBuffer {
-    buffer: String,
+    rows: Vec<TextRow>,
 }
 
 impl ScreenBuffer {
-    fn append(&mut self, new: &str) {
-        self.buffer.push_str(new);
-    }
-
     fn new() -> Self {
-        return Self {
-            buffer: String::new(),
-        };
+        return Self { rows: Vec::new() };
     }
 }
 
-fn render(stdout: &mut RawTerminal<Stdout>, counter: i64) {
+fn render(stdout: &mut RawTerminal<Stdout>, counter: i64, _buffer: &mut ScreenBuffer) {
     let (width, height) = termion::terminal_size().unwrap();
     write!(
         stdout,
@@ -35,20 +38,15 @@ fn render(stdout: &mut RawTerminal<Stdout>, counter: i64) {
     .unwrap();
     for i in 0..height {
         let mut line = format!(
-            "{}{}fg: {:#?}///bg: {:#?}",
-            color::Bg(color::AnsiValue::grayscale((i % 24) as u8)),
+            "{}{}{}{}{}",
+            color::Fg(color::Black),
+            color::Bg(color::White),
             i,
-            //            color::AnsiValue::grayscale(24).fg_string(),
-            //            color::AnsiValue::grayscale(24).bg_string(),
-            color::AnsiValue::rgb(0, 0, 0).fg_string(),
-            color::AnsiValue::rgb(0, 0, 0).bg_string(),
+            color::Fg(color::Reset),
+            color::Bg(color::Reset),
         );
 
         let extra = match i {
-            0 => format!(
-                " counter: {} height: {} width: {} \r\n",
-                counter, height, width
-            ),
             _ if i == height / 3 => {
                 // I want to center this
                 // padding ==
@@ -64,18 +62,52 @@ fn render(stdout: &mut RawTerminal<Stdout>, counter: i64) {
                 )
             }
 
-            _ if i == height - 1 => "".to_string(),
+            _ if i == height - 1 => format!(
+                "{}{} counter: {} height: {} width: {}",
+                color::Fg(color::Black),
+                color::Bg(color::White),
+                counter,
+                height,
+                width,
+            ),
+
             _ => "\r\n".to_string(),
         };
 
         line.push_str(&extra);
 
-        write!(stdout, "{}", line).unwrap();
+        if i == height - 1 {
+            //            turn_on_special(stdout);
+            line.push_str(&format!("{}", termion::clear::AfterCursor));
+            write!(stdout, "{}", line).unwrap();
+            turn_off_special(stdout);
+        } else {
+            write!(stdout, "{}", line).unwrap();
+        }
     }
-    write!(stdout, "{}", termion::cursor::Goto(3, 1)).unwrap();
+    write!(stdout, "{}derp", termion::cursor::Goto(3, 1)).unwrap();
     stdout.flush().unwrap();
 }
 
+fn turn_on_special(stdout: &mut RawTerminal<Stdout>) {
+    write!(
+        stdout,
+        "{}{}",
+        color::Fg(color::Black),
+        color::Bg(color::White)
+    )
+    .unwrap();
+}
+
+fn turn_off_special(stdout: &mut RawTerminal<Stdout>) {
+    write!(
+        stdout,
+        "{}{}",
+        color::Fg(color::Reset),
+        color::Bg(color::Reset)
+    )
+    .unwrap();
+}
 fn main() {
     let buffer = ScreenBuffer::new();
     let stdin = stdin();
@@ -88,13 +120,17 @@ fn main() {
         termion::cursor::Goto(1, 1),
     )
     .unwrap();
-
+    /*
+    let file = File::open("/tmp/example");
+    file.read_line(buffer);
+     */
+    let mut screen_buffer = ScreenBuffer::new();
     stdout.flush().unwrap();
 
     let mut counter = 0;
     for c in stdin.keys() {
         counter += 1;
-        render(&mut stdout, counter);
+        render(&mut stdout, counter, &mut screen_buffer);
         //        render();
         let a = c.unwrap();
         // handle inputs
